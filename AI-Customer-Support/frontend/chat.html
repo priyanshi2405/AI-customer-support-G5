@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Customer support</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="chat-page">
+  <header class="chat-head">
+    <strong id="biz">Loading…</strong>
+    <span class="muted">Answers come from this business's own documents.</span>
+  </header>
+
+  <main class="chat-main">
+    <div id="log" class="log"></div>
+    <form id="form" class="composer">
+      <input id="input" maxlength="1000" placeholder="Ask about pricing, refunds, delivery…" autocomplete="off" required>
+      <button class="btn primary" id="send" type="submit">Send</button>
+    </form>
+  </main>
+
+  <script>
+    const slug = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop());
+    const key = `chat:${slug}`;
+    let session = localStorage.getItem(key) || '';
+    const log = document.getElementById('log');
+    const form = document.getElementById('form');
+    const input = document.getElementById('input');
+    const send = document.getElementById('send');
+
+    const clock = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    function bubble(role, text, source) {
+      const el = document.createElement('div');
+      el.className = `bubble ${role}`;
+      const p = document.createElement('p');
+      p.textContent = text;
+      el.appendChild(p);
+      if (source) {
+        const s = document.createElement('small');
+        s.className = 'src';
+        s.textContent = `Source: ${source}`;
+        el.appendChild(s);
+      }
+      const t = document.createElement('time');
+      t.textContent = clock();
+      el.appendChild(t);
+      log.appendChild(el);
+      log.scrollTop = log.scrollHeight;
+      return el;
+    }
+
+    fetch(`/api/business/public/${encodeURIComponent(slug)}`)
+      .then((r) => r.json())
+      .then((b) => {
+        if (b.name) {
+          document.getElementById('biz').textContent = b.name;
+          bubble('assistant', `Hi! Ask me anything about ${b.name}: products, prices, delivery or policies.`);
+        } else {
+          document.getElementById('biz').textContent = 'Chat unavailable';
+          form.style.display = 'none';
+          bubble('error', 'This chat link is not valid.');
+        }
+      })
+      .catch(() => bubble('error', 'Could not reach the server.'));
+
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      send.disabled = true;
+      bubble('customer', text);
+      const typing = bubble('assistant', 'Typing…');
+      try {
+        const res = await fetch('/api/chat/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug, sessionToken: session, message: text }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Something went wrong');
+        session = data.sessionToken;
+        localStorage.setItem(key, session);
+        typing.remove();
+        bubble('assistant', data.reply, data.source);
+      } catch (err) {
+        typing.remove();
+        bubble('error', err.message);
+      } finally {
+        send.disabled = false;
+        input.focus();
+      }
+    };
+  </script>
+</body>
+</html>
